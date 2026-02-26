@@ -1,0 +1,41 @@
+{
+  "version": "1.0",
+  "updated_at": "2026-02-26T00:00:00+08:00",
+  "data_dir": "~/openclaw-data/investment",
+  "market": {
+    "default": "US",
+    "supported": ["US", "HK", "CN", "CRYPTO"]
+  },
+  "data_source": {
+    "provider": "yfinance",
+    "cache_dir": "~/openclaw-data/investment/cache"
+  },
+  "evaluation": {
+    "lookback_days": 60,
+    "news_lookback_days": 7,
+    "global_news_limit": 5,
+    "chart_days_daily": 60,
+    "chart_days_weekly": 120,
+    "indicators": [
+      "macd", "macds", "macdh",
+      "rsi",
+      "boll", "boll_ub", "boll_lb",
+      "close_50_sma", "close_200_sma", "close_10_ema",
+      "atr", "vwma"
+    ]
+  },
+  "plan": {
+    "expiry_months": 3,
+    "expiry_warning_days": 7,
+    "significant_price_move_pct": 5.0
+  },
+  "telegram": {
+    "enabled": true,
+    "note": "Telegram delivery is handled via OpenClaw channel config, not this file"
+  },
+  "cron": {
+    "daily_eval_time": "16:30 ET (Mon-Fri)",
+    "weekly_review_time": "10:00 ET (Saturday)",
+    "expiry_check_time": "09:00 ET (Monday)"
+  }
+}
