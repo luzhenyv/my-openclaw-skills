@@ -58,6 +58,74 @@ sessions_spawn ─┬─ 📈 技术面分析师 (label: market-analyst-{SYMBOL}
 - `subagent_news_analyst_task.md`
 - `subagent_fundamentals_analyst_task.md`
 
+#### 技术面分析师变量替换表
+
+| 变量 | 值 | 说明 |
+|------|-----|------|
+| `{ticker}` | 如 `TSLA` | 股票代码 |
+| `{symbol_lower}` | 如 `tsla` | 小写，用于文件名 |
+| `{SKILL_DIR}` | SKILL.md 所在目录的绝对路径 | 脚本路径前缀 |
+| `{current_date}` | 如 `2026-02-26` | 当前日期 |
+| `{lookback_days}` | `60`（日常）/ `120`（周报） | 数据回溯天数 |
+| `{period}` | `daily`（日常）/ `weekly`（周报） | K 线周期 |
+| `{chart_days}` | `60`（日常）/ `120`（周报） | K 线图天数 |
+
+```
+sessions_spawn:
+  task: "（填充后的 subagent_market_analyst_task.md 内容）"
+  label: "market-analyst-{SYMBOL}"
+```
+
+#### 消息面分析师变量替换表
+
+| 变量 | 值 |
+|------|-----|
+| `{ticker}` | 股票代码 |
+| `{symbol_lower}` | 小写 |
+| `{SKILL_DIR}` | 脚本路径前缀 |
+| `{current_date}` | 当前日期 |
+| `{news_days}` | `7`（日常）/ `14`（周报） |
+
+```
+sessions_spawn:
+  task: "（填充后的 subagent_news_analyst_task.md 内容）"
+  label: "news-analyst-{SYMBOL}"
+```
+
+#### 基本面分析师变量替换表
+
+| 变量 | 值 |
+|------|-----|
+| `{ticker}` | 股票代码 |
+| `{symbol_lower}` | 小写 |
+| `{SKILL_DIR}` | 脚本路径前缀 |
+| `{current_date}` | 当前日期 |
+
+```
+sessions_spawn:
+  task: "（填充后的 subagent_fundamentals_analyst_task.md 内容）"
+  label: "fundamentals-analyst-{SYMBOL}"
+```
+
+#### 投资评估师变量替换表（Phase 2）
+
+| 变量 | 值 |
+|------|-----|
+| `{ticker}` | 股票代码 |
+| `{current_date}` | 当前日期 |
+| `{SKILL_DIR}` | 脚本路径前缀 |
+| `{plan_id}` | 计划 ID |
+| `{plan_info}` | 完整的计划 JSON 信息 |
+| `{market_analysis}` | Phase 1a 技术面分析报告（`report` 字段） |
+| `{news_analysis}` | Phase 1b 消息面分析报告（`report` 字段） |
+| `{fundamentals_analysis}` | Phase 1c 基本面分析报告（`report` 字段） |
+
+```
+sessions_spawn:
+  task: "（填充后的 subagent_evaluator_task.md 内容）"
+  label: "evaluator-{SYMBOL}"
+```
+
 ### Phase 1→2 过渡: 结果收集（Orchestrator）
 
 ```
@@ -201,4 +269,80 @@ sessions_spawn ─── 🎯 投资评估师 (label: evaluator-{SYMBOL})
   }
 }
 ```
+
+## Phase 3 操作命令
+
+### 3a. 记录评估结果
+
+```bash
+cat > /tmp/eval_record.json << 'JSONEOF'
+[
+  {
+    "date": "{date}",
+    "symbol": "{ticker}",
+    "market": "{market}",
+    "direction": "{direction}",
+    "plan_id": "{plan_id}",
+    "target_price": {target_price},
+    "current_price": {current_price},
+    "price_in_range": "{true/false}",
+    "technical_score": {technical_score},
+    "news_score": {news_score},
+    "fundamentals_score": {fundamentals_score},
+    "verdict": "{verdict}",
+    "confidence": {confidence},
+    "reason": "{reason}"
+  }
+]
+JSONEOF
+
+python3 <SKILL_DIR>/scripts/write_evaluation.py \
+  --data-dir ~/openclaw-data/investment \
+  --records-file /tmp/eval_record.json
+```
+
+各字段值直接从 evaluator 的 JSON 结果中提取。
+
+### 3b. 归档重要新闻（如有）
+
+如果消息面分析师返回的 `significant_news` 非空：
+
+```bash
+cat > /tmp/news_records.json << 'JSONEOF'
+[
+  {
+    "date": "{date}",
+    "symbol": "{ticker}",
+    "headline": "{headline}",
+    "source": "{source}",
+    "summary": "{summary}",
+    "sentiment": "{sentiment}",
+    "is_significant": "true"
+  }
+]
+JSONEOF
+
+python3 <SKILL_DIR>/scripts/write_news_archive.py \
+  --data-dir ~/openclaw-data/investment \
+  --records-file /tmp/news_records.json
+```
+
+### 3c. 推送评估报告
+
+格式化为 Telegram 消息，详见 `report_format_spec.md`。
+
+## 特殊场景处理
+
+| 场景 | 处理方式 |
+|------|---------|
+| yfinance 数据获取失败 | Sub-Agent 返回 `status: "error"`，跳过该维度，报告中注明 |
+| K 线图生成失败 | Sub-Agent 返回 `status: "partial"` + `data_issues`，跳过视觉分析 |
+| 无新闻数据 | 消息面 Sub-Agent 评分标记为"数据不足"，其他维度正常评估 |
+| 非交易日手动触发 | 正常执行，使用最近交易日数据 |
+| 多个计划关注同一股票 | Phase 1 数据获取/分析只 spawn 一组 Sub-Agent，Phase 2 评估按计划分别 spawn |
+| 港股/A股代码格式 | 港股用 `.HK` 后缀（如 `0700.HK`），A股用 `.SS`/`.SZ` 后缀 |
+| 用户未提供完整信息 | 引导用户补全必填字段，可选字段使用默认值 |
+| 基本面季度缓存 | 基本面 Sub-Agent 内部处理缓存逻辑 |
+| Sub-Agent announce 失败 | Gateway 自动重试，最终失败则标记为 N/A |
+| 并发控制 | 由 OpenClaw `maxConcurrent` 配置控制，默认 8 |
 ```
