@@ -35,10 +35,31 @@
 | quantity | int\|null | 否 | 股数（与 amount 二选一） |
 | amount | float\|null | 否 | 投入金额（与 quantity 二选一） |
 | priority | string | 否 | `low` / `medium` / `high`，默认 `medium` |
-| thesis | string | 否 | 用户的投资逻辑 |
+| logic_type | string | 是 | 交易逻辑类型，见下方「交易逻辑类型」 |
+| thesis | string | 是 | 用户的投资逻辑（必须与 `logic_type` 一致，经讨论确认后录入） |
 | notes | string | 否 | 备注 |
 | evaluations_count | int | 自动 | 已评估次数 |
 | last_evaluated_at | string\|null | 自动 | 最后评估时间 |
+
+## 交易逻辑类型（logic_type）
+
+每个计划**必须**指定一个明确的交易逻辑类型，确保用户的每笔交易都有理性的内在逻辑而非情绪化决策。
+
+| 值 | 中文 | 适用方向 | 说明 |
+|---|------|---------|------|
+| `pullback_buy` | 回调买入 | buy | 看好标的，等价格回调至支撑位附近再买入（左侧） |
+| `breakout_long` | 突破追涨 | buy | 等价格突破关键阻力位后确认趋势再买入（右侧） |
+| `left_side_entry` | 左侧建仓 | buy | 在下跌趋势中分批建仓，越跌越买 |
+| `right_side_entry` | 右侧建仓 | buy | 等趋势确认反转后再入场 |
+| `support_bounce` | 支撑反弹 | buy | 价格触及重要支撑位后的反弹买入 |
+| `mean_reversion` | 均值回归 | buy/sell | 价格偏离均值过大，预期回归 |
+| `take_profit` | 止盈卖出 | sell | 达到目标收益，分批或一次性止盈 |
+| `stop_loss` | 止损卖出 | sell | 跌破关键位，执行纪律性止损 |
+| `reduce_position` | 减仓 | sell | 降低仓位以控制风险 |
+| `momentum_chase` | 追涨 | buy | 强势股顺势追入（需严格止损） |
+| `other` | 其他 | buy/sell | 不属于以上类型，需在 `thesis` 中详细说明 |
+
+> **规则**：`logic_type` 与 `direction` 应匹配。例如 `take_profit` 只能搭配 `sell`，`pullback_buy` 只能搭配 `buy`。`mean_reversion` 和 `other` 两者皆可。
 
 ## 状态流转
 
@@ -77,7 +98,8 @@ pending ──► triggered (当前价进入 price_range)
   "quantity": null,
   "amount": 10000.0,
   "priority": "high",
-  "thesis": "长期看好自动驾驶，400 附近是重要支撑位",
+  "logic_type": "pullback_buy",
+  "thesis": "长期看好自动驾驶，400 附近是重要支撑位，等回调到支撑区间再买入",
   "notes": "",
   "evaluations_count": 0,
   "last_evaluated_at": null
@@ -99,7 +121,8 @@ cat > /tmp/plan_record.json << 'JSONEOF'
   "price_range": [385.0, 415.0],
   "amount": 10000.0,
   "priority": "high",
-  "thesis": "长期看好自动驾驶，400 附近是重要支撑位"
+  "logic_type": "pullback_buy",
+  "thesis": "长期看好自动驾驶，400 附近是重要支撑位，等回调到支撑区间再买入"
 }
 JSONEOF
 
@@ -151,4 +174,7 @@ python3 <SKILL_DIR>/scripts/plan_crud.py check-expiring \
 5. `quantity` 和 `amount` 至少有一个不为 null
 6. `market` 必须是 `US` / `HK` / `CN` / `CRYPTO` 之一
 7. `priority` 默认 `medium`，可选 `low` / `medium` / `high`
+8. `logic_type` 必须是上方「交易逻辑类型」表中的合法值之一
+9. `logic_type` 与 `direction` 必须匹配（如 `take_profit` 仅限 `sell`，`pullback_buy` 仅限 `buy`）
+10. `thesis` 不能为空，且应与 `logic_type` 一致地描述具体的交易理由
 ```
