@@ -24,7 +24,7 @@ python3 {SKILL_DIR}/scripts/fetch_stock_data.py \
 
 # 1b. 技术指标
 python3 {SKILL_DIR}/scripts/fetch_indicators.py \
-  --symbol {ticker} --all --lookback {lookback_days} \
+  --symbol {ticker} --all --date {current_date} --lookback {lookback_days} \
   --output /tmp/{symbol_lower}_indicators.json
 
 # 1c. K线图

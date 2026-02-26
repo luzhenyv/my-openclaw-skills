@@ -13,6 +13,22 @@ description: |
 
 改编自 [TradingAgents](https://github.com/TauricResearch/TradingAgents) 的核心分析框架，使用 **OpenClaw Sub-Agents** 实现多 Agent 并行评估。
 
+## ⚠️ 关键规则（MANDATORY — 每次评估必须严格执行）
+
+> **下面的规则是强制性的，不允许跳过任何一步或"自己发挥"。**
+
+1. **必须使用 `read` 工具读取 `references/subagent_*_task.md` 模板文件** → 将模板中的 `{变量}` 替换为实际值 → 将替换后的完整文本传入 `sessions_spawn` 的 `task` 参数。  
+   ❌ **禁止自己编写简化版的 task**。模板中包含关键的 Python 脚本命令、分析框架指引和输出格式要求，缺少这些 Sub-Agent 无法正确执行！
+
+2. **必须使用项目內的 Python 脚本（`<SKILL_DIR>/scripts/`）获取数据**。所有数据获取通过脚本完成——不要让 Sub-Agent 用 `web_search`/`web_fetch` 替代。
+
+3. **必须走完 Phase 1 → Phase 2 → Phase 3 全流程**：
+   - Phase 1: Spawn 3 个分析师 Sub-Agent（技术面 + 消息面 + 基本面）
+   - Phase 2: 等 3 个 Sub-Agent 全部完成后，**必须 Spawn 投资评估师 Sub-Agent**（读取 `references/subagent_evaluator_task.md` 模板，填充后 spawn）
+   - Phase 3: 投资评估师完成后，**必须执行** `write_evaluation.py` 记录结果 + 格式化 Telegram 报告
+
+4. **`<SKILL_DIR>` = 此 SKILL.md 文件所在目录的绝对路径**（即 `{baseDir}` 的值）。所有引用的脚本和文件都相对于此目录。
+
 ## 系统架构
 
 ```
@@ -164,9 +180,11 @@ python3 <SKILL_DIR>/scripts/plan_crud.py list \
 > **Sub-Agent 成本提示**：建议在 OpenClaw 配置中为 sub-agent 设置较低成本的 model：
 > `agents.defaults.subagents.model` 或 per-agent `agents.list[].subagents.model`
 
+> ⚠️ **必须步骤**：用 `read` 工具读取 `<SKILL_DIR>/references/subagent_*_task.md` 模板文件 → 文本替换 `{变量}` → 将完整替换后的文本作为 `sessions_spawn` 的 `task` 参数。**绝对不要自己编写简化版 task！** 模板中的 Python 脚本命令和分析框架是 Sub-Agent 正确执行的关键。
+
 #### 1a. Spawn 技术面分析师
 
-读取 `references/subagent_market_analyst_task.md` 模板，填充以下变量后作为 `task` 参数：
+用 `read` 工具读取 `<SKILL_DIR>/references/subagent_market_analyst_task.md` 模板，并将以下变量替换为实际值后作为 `task` 参数：
 
 | 变量 | 值 | 说明 |
 |------|-----|------|
@@ -186,7 +204,7 @@ sessions_spawn:
 
 #### 1b. Spawn 消息面分析师
 
-读取 `references/subagent_news_analyst_task.md` 模板，填充以下变量：
+用 `read` 工具读取 `<SKILL_DIR>/references/subagent_news_analyst_task.md` 模板，替换以下变量：
 
 | 变量 | 值 |
 |------|-----|
@@ -204,7 +222,7 @@ sessions_spawn:
 
 #### 1c. Spawn 基本面分析师
 
-读取 `references/subagent_fundamentals_analyst_task.md` 模板，填充以下变量：
+用 `read` 工具读取 `<SKILL_DIR>/references/subagent_fundamentals_analyst_task.md` 模板，替换以下变量：
 
 | 变量 | 值 |
 |------|-----|
@@ -246,11 +264,11 @@ Orchestrator 需要追踪三个 Sub-Agent 的 announce 结果。
   收集进度: 2/3
 ```
 
-### Phase 2：辩论与综合评估（1 个 Sub-Agent）
+### Phase 2：辩论与综合评估（1 个 Sub-Agent）— ⚠️ 不可跳过！
 
-三份分析报告收齐后，spawn 投资评估师。
+三份分析报告收齐后，**必须** spawn 投资评估师。**不要自己生成评估，必须通过 Sub-Agent 完成，以确保多空辩论的客观性。**
 
-读取 `references/subagent_evaluator_task.md` 模板，填充以下变量：
+用 `read` 工具读取 `<SKILL_DIR>/references/subagent_evaluator_task.md` 模板，替换以下变量：
 
 | 变量 | 值 |
 |------|-----|
