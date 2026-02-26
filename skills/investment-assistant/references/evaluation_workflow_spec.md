@@ -157,7 +157,7 @@ sessions_spawn ─── 🎯 投资评估师 (label: evaluator-{SYMBOL})
 4. 收到评估师 announce → 提取结果
 5. 写入评估 CSV → write_evaluation.py
 6. 归档重要新闻（如有）→ write_news_archive.py
-7. 格式化 Telegram 报告 → 推送
+7. 格式化 Discord 报告 → 推送到 #investment 频道
 ```
 
 ## Sub-Agent 通信协议
@@ -329,7 +329,7 @@ python3 <SKILL_DIR>/scripts/write_news_archive.py \
 
 ### 3c. 推送评估报告
 
-格式化为 Telegram 消息，详见 `report_format_spec.md`。
+格式化为 Discord 消息，详见 `report_format_spec.md`。推送到 #investment 频道。
 
 ## 特殊场景处理
 

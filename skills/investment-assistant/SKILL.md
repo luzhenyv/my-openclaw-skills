@@ -25,7 +25,7 @@ description: |
 3. **必须走完 Phase 1 → Phase 2 → Phase 3 全流程**：
    - Phase 1: Spawn 3 个分析师 Sub-Agent（技术面 + 消息面 + 基本面）
    - Phase 2: 等 3 个 Sub-Agent 全部完成后，**必须 Spawn 投资评估师 Sub-Agent**（读取 `references/subagent_evaluator_task.md` 模板，填充后 spawn）
-   - Phase 3: 投资评估师完成后，**必须执行** `write_evaluation.py` 记录结果 + 格式化 Telegram 报告
+   - Phase 3: 投资评估师完成后，**必须执行** `write_evaluation.py` 记录结果 + 格式化 Discord 报告
 
 4. **`<SKILL_DIR>` = 此 SKILL.md 文件所在目录的绝对路径**（即 `{baseDir}` 的值）。所有引用的脚本和文件都相对于此目录。
 
@@ -47,7 +47,7 @@ investment-assistant (Orchestrator 主协调者)
 └── 评估 Phase 3: 记录与报告 ── 直接处理
     ├── 写入评估 CSV
     ├── 归档重要新闻
-    └── 格式化并推送 Telegram 报告
+    └── 格式化并推送 Discord 报告（#investment 频道）
 ```
 
 ---
@@ -99,7 +99,7 @@ investment-assistant (Orchestrator 主协调者)
 
 **Phase 2**：`read` `subagent_evaluator_task.md` → 填充三份报告 + 计划信息 → spawn 投资评估师。同一股票多个计划时：分析复用，评估按计划分别 spawn。
 
-**Phase 3**：执行 `write_evaluation.py` 记录 + `write_news_archive.py` 归档 + 格式化 Telegram 报告（格式见 `references/report_format_spec.md`）。
+**Phase 3**：执行 `write_evaluation.py` 记录 + `write_news_archive.py` 归档 + 格式化 Discord 报告（格式见 `references/report_format_spec.md`），推送到 #investment 频道。
 
 ---
 
@@ -144,7 +144,7 @@ investment-assistant (Orchestrator 主协调者)
 | `references/plan_spec.md` | 计划字段定义、状态流转、数据结构 |
 | `references/plan_crud_spec.md` | 计划 CRUD 操作命令、到期检查 |
 | `references/evaluation_workflow_spec.md` | 评估全流程、变量替换表、Phase 3 命令、错误处理、特殊场景 |
-| `references/report_format_spec.md` | Telegram 报告格式（每日/汇总/周报） |
+| `references/report_format_spec.md` | Discord 报告格式（每日/汇总/周报） |
 | `references/technical_indicators_spec.md` | 13 个技术指标详细说明 |
 | `references/subagent_*_task.md` | Sub-Agent 任务模板（4 个） |
 | `references/*_prompt.md` | Sub-Agent 分析框架提示词（5 个） |
