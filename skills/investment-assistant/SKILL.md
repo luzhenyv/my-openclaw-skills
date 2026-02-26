@@ -1,7 +1,7 @@
 ---
 name: investment-assistant
 description: |
-  个人投资计划管理 + 智能盘后评估系统。
+  个人投资计划管理 + 智能盘后评估系统（Multi-Agent 架构）。
   核心功能：① 投资计划 CRUD 管理（备忘录）② 每日盘后自动多维度评估。
   触发词：添加计划、新建计划、投资计划、查看计划、评估、盘后分析、今日分析、
   周报、投资周报、plan、evaluate、analysis、weekly review。
@@ -11,7 +11,30 @@ description: |
 
 投资计划管理 → 自动获取市场数据 → 技术/消息/基本面三维分析 → 多空辩论 → 综合评估 → 推送报告。
 
-改编自 [TradingAgents](https://github.com/TauricResearch/TradingAgents) 的核心分析框架，采用单 Agent 顺序扮演多角色完成完整评估链。
+改编自 [TradingAgents](https://github.com/TauricResearch/TradingAgents) 的核心分析框架，使用 **OpenClaw Sub-Agents** 实现多 Agent 并行评估。
+
+## 系统架构
+
+```
+investment-assistant (Orchestrator 主协调者)
+│
+├── 计划管理 ──── 直接处理，不需要 Sub-Agent
+│
+├── 评估 Phase 1: 三维分析（3 个 Sub-Agent 并行）
+│   ├── 📈 技术面分析师  ── sessions_spawn → 获取数据 + 技术分析
+│   ├── 📰 消息面分析师  ── sessions_spawn → 获取新闻 + 消息分析
+│   └── 📊 基本面分析师  ── sessions_spawn → 获取财报 + 基本面分析
+│
+├── 评估 Phase 2: 辩论与决策（1 个 Sub-Agent，等 Phase 1 全部完成后触发）
+│   └── 🎯 投资评估师   ── sessions_spawn → 多空辩论 + 综合评估 + 最终决策
+│
+└── 评估 Phase 3: 记录与报告 ── 直接处理
+    ├── 写入评估 CSV
+    ├── 归档重要新闻
+    └── 格式化并推送 Telegram 报告
+```
+
+**并行优势**：Phase 1 的三个分析师 Sub-Agent 同时执行，评估耗时减少约 60%。
 
 ---
 
@@ -112,7 +135,7 @@ python3 <SKILL_DIR>/scripts/plan_crud.py delete \
 
 ---
 
-## 二、每日盘后评估
+## 二、每日盘后评估（Multi-Agent 流程）
 
 ### 触发方式
 
@@ -123,118 +146,155 @@ python3 <SKILL_DIR>/scripts/plan_crud.py delete \
 
 所有 `status = pending` 或 `status = triggered` 的计划。手动触发时也可指定单只股票。
 
-### 完整评估流程
-
-对**每只股票**（按 symbol 去重）执行以下完整流程：
-
-#### Step 1：获取市场数据
+### Phase 0：准备工作（Orchestrator 直接执行）
 
 ```bash
-# 1a. OHLCV 数据
-python3 <SKILL_DIR>/scripts/fetch_stock_data.py \
-  --symbol {SYMBOL} --days 60 \
-  --output /tmp/{symbol}_ohlcv.csv
-
-# 1b. 技术指标
-python3 <SKILL_DIR>/scripts/fetch_indicators.py \
-  --symbol {SYMBOL} --all --lookback 60 \
-  --output /tmp/{symbol}_indicators.json
-
-# 1c. K线图（每日用daily，周报用weekly）
-python3 <SKILL_DIR>/scripts/generate_chart.py \
-  --symbol {SYMBOL} --period daily --days 60 \
-  --output /tmp/{symbol}_chart.png
-
-# 1d. 公司新闻
-python3 <SKILL_DIR>/scripts/fetch_news.py \
-  --mode company --symbol {SYMBOL} --days 7 \
-  --output /tmp/{symbol}_company_news.json
-
-# 1e. 全球宏观新闻
-python3 <SKILL_DIR>/scripts/fetch_news.py \
-  --mode global --days 3 \
-  --output /tmp/global_news.json
-
-# 1f. 基本面数据（带季度缓存）
-python3 <SKILL_DIR>/scripts/fetch_fundamentals.py \
-  --symbol {SYMBOL} \
+# 读取所有活跃计划
+python3 <SKILL_DIR>/scripts/plan_crud.py list \
   --data-dir ~/openclaw-data/investment \
-  --output /tmp/{symbol}_fundamentals.json
+  --status pending,triggered
 ```
 
-#### Step 2：技术面分析（Market Analyst 角色）
+解析输出，按 symbol 去重，确定本次需要评估的股票列表。
 
-读取 `references/market_analyst_prompt.md` 作为分析框架。
+### Phase 1：三维分析（3 个 Sub-Agent 并行）
 
-将以下数据填入模板变量：
-- `{stock_data_csv}`：Step 1a 的 OHLCV 数据
-- `{indicators_json}`：Step 1b 的技术指标
-- `{chart_image_path}`：Step 1c 的 K 线图（使用 Vision 能力分析图像）
-- `{ticker}`、`{current_date}`、`{period}`
+对**每个 symbol**，同时 spawn 三个 Sub-Agent。使用 `sessions_spawn` 工具：
 
-执行分析，产出：**技术面分析报告** + **技术面评分 (0-100)**
+> **Sub-Agent 成本提示**：建议在 OpenClaw 配置中为 sub-agent 设置较低成本的 model：
+> `agents.defaults.subagents.model` 或 per-agent `agents.list[].subagents.model`
 
-#### Step 3：消息面分析（News Analyst 角色）
+#### 1a. Spawn 技术面分析师
 
-读取 `references/news_analyst_prompt.md` 作为分析框架。
+读取 `references/subagent_market_analyst_task.md` 模板，填充以下变量后作为 `task` 参数：
 
-将以下数据填入模板变量：
-- `{company_news_json}`：Step 1d 的公司新闻
-- `{global_news_json}`：Step 1e 的全球新闻
-- `{ticker}`、`{current_date}`
+| 变量 | 值 | 说明 |
+|------|-----|------|
+| `{ticker}` | 如 `TSLA` | 股票代码 |
+| `{symbol_lower}` | 如 `tsla` | 小写，用于文件名 |
+| `{SKILL_DIR}` | 此 SKILL.md 所在目录的绝对路径 | 脚本路径前缀 |
+| `{current_date}` | 如 `2026-02-26` | 当前日期 |
+| `{lookback_days}` | `60`（日常）/ `120`（周报） | 数据回溯天数 |
+| `{period}` | `daily`（日常）/ `weekly`（周报） | K 线周期 |
+| `{chart_days}` | `60`（日常）/ `120`（周报） | K 线图天数 |
 
-执行分析，产出：**消息面分析报告** + **消息面评分 (0-100)** + **重要新闻列表（如有）**
+```
+sessions_spawn:
+  task: "（填充后的 subagent_market_analyst_task.md 内容）"
+  label: "market-analyst-{SYMBOL}"
+```
 
-#### Step 4：基本面分析（Fundamentals Analyst 角色）
+#### 1b. Spawn 消息面分析师
 
-读取 `references/fundamentals_analyst_prompt.md` 作为分析框架。
+读取 `references/subagent_news_analyst_task.md` 模板，填充以下变量：
 
-将以下数据填入模板变量：
-- `{fundamentals_json}`：Step 1f 的基本面数据
-- `{cached_memo}`：季度缓存 Markdown 备忘录（如有）
-- `{ticker}`、`{current_date}`
+| 变量 | 值 |
+|------|-----|
+| `{ticker}` | 股票代码 |
+| `{symbol_lower}` | 小写 |
+| `{SKILL_DIR}` | 脚本路径前缀 |
+| `{current_date}` | 当前日期 |
+| `{news_days}` | `7`（日常）/ `14`（周报） |
 
-执行分析，产出：**基本面分析报告** + **基本面评分 (0-100)**
+```
+sessions_spawn:
+  task: "（填充后的 subagent_news_analyst_task.md 内容）"
+  label: "news-analyst-{SYMBOL}"
+```
 
-#### Step 5：多空辩论
+#### 1c. Spawn 基本面分析师
 
-**看多方**：读取 `references/bull_researcher_prompt.md`，输入三份分析报告 + 计划信息，产出看多论点。
+读取 `references/subagent_fundamentals_analyst_task.md` 模板，填充以下变量：
 
-**看空方**：读取 `references/bear_researcher_prompt.md`，输入三份分析报告 + 计划信息，产出看空论点。
+| 变量 | 值 |
+|------|-----|
+| `{ticker}` | 股票代码 |
+| `{symbol_lower}` | 小写 |
+| `{SKILL_DIR}` | 脚本路径前缀 |
+| `{current_date}` | 当前日期 |
 
-#### Step 6：综合评估与最终决策
+```
+sessions_spawn:
+  task: "（填充后的 subagent_fundamentals_analyst_task.md 内容）"
+  label: "fundamentals-analyst-{SYMBOL}"
+```
 
-读取 `references/risk_evaluator_prompt.md` 作为评估框架。
+#### Phase 1 并行执行说明
 
-输入：三份分析报告 + 多空论点 + 完整计划信息。
+三个 `sessions_spawn` 调用是**非阻塞**的，立即返回 `runId`。Orchestrator 的本轮处理结束。
 
-产出：
-- **加权综合评分**（技术面 30% + 消息面 30% + 基本面 40%）
-- **最终决策**：`recommend_execute` / `wait` / `recommend_cancel`
-- **信心度**（0-100%）
-- **可操作建议**
+当每个 Sub-Agent 完成后，会通过 **announce** 机制向 Orchestrator 发送一条系统消息，内容为该 Sub-Agent 的 JSON 结果。
 
-#### Step 7：记录评估结果
+### Phase 1→2 过渡：收集分析结果
+
+Orchestrator 需要追踪三个 Sub-Agent 的 announce 结果。
+
+**收到每条 announce 时的处理逻辑**：
+
+1. 解析 announce 消息中的 JSON（从 ```json 代码块提取）
+2. 根据 `agent` 字段（`market_analyst` / `news_analyst` / `fundamentals_analyst`）和 `ticker` 字段分类存储
+3. 检查该 symbol 的三份分析报告是否已全部收集完毕
+4. **如果三份都已收齐** → 进入 Phase 2，spawn 投资评估师
+5. **如果尚未收齐** → 等待下一个 announce
+
+**状态追踪**（在回复中维护）：
+```
+📊 {SYMBOL} 评估进度:
+  ✅ 技术面分析师 - 完成 (score: 62)
+  ✅ 消息面分析师 - 完成 (score: 55)
+  ⏳ 基本面分析师 - 进行中...
+  收集进度: 2/3
+```
+
+### Phase 2：辩论与综合评估（1 个 Sub-Agent）
+
+三份分析报告收齐后，spawn 投资评估师。
+
+读取 `references/subagent_evaluator_task.md` 模板，填充以下变量：
+
+| 变量 | 值 |
+|------|-----|
+| `{ticker}` | 股票代码 |
+| `{current_date}` | 当前日期 |
+| `{SKILL_DIR}` | 脚本路径前缀 |
+| `{plan_id}` | 计划 ID |
+| `{plan_info}` | 完整的计划 JSON 信息 |
+| `{market_analysis}` | Phase 1a 收到的技术面分析报告（`report` 字段） |
+| `{news_analysis}` | Phase 1b 收到的消息面分析报告（`report` 字段） |
+| `{fundamentals_analysis}` | Phase 1c 收到的基本面分析报告（`report` 字段） |
+
+```
+sessions_spawn:
+  task: "（填充后的 subagent_evaluator_task.md 内容）"
+  label: "evaluator-{SYMBOL}"
+```
+
+> **同一只股票有多个计划**时：分析报告复用，但为每个 plan 分别 spawn 一个评估师（因为计划的方向、目标价不同会影响评估结果）。
+
+### Phase 3：记录与报告（Orchestrator 直接执行）
+
+收到投资评估师的 announce 后，解析 JSON 结果，执行以下操作：
+
+#### 3a. 记录评估结果
 
 ```bash
-# 写入评估记录
 cat > /tmp/eval_record.json << 'JSONEOF'
 [
   {
-    "date": "{YYYY-MM-DD}",
-    "symbol": "{SYMBOL}",
-    "market": "{MARKET}",
-    "direction": "{DIRECTION}",
-    "plan_id": "{PLAN_ID}",
-    "target_price": {TARGET_PRICE},
-    "current_price": {CURRENT_CLOSE},
+    "date": "{date}",
+    "symbol": "{ticker}",
+    "market": "{market}",
+    "direction": "{direction}",
+    "plan_id": "{plan_id}",
+    "target_price": {target_price},
+    "current_price": {current_price},
     "price_in_range": "{true/false}",
-    "technical_score": {TECH_SCORE},
-    "news_score": {NEWS_SCORE},
-    "fundamentals_score": {FUND_SCORE},
-    "verdict": "{recommend_execute/wait/recommend_cancel}",
-    "confidence": {CONFIDENCE},
-    "reason": "{简要原因}"
+    "technical_score": {technical_score},
+    "news_score": {news_score},
+    "fundamentals_score": {fundamentals_score},
+    "verdict": "{verdict}",
+    "confidence": {confidence},
+    "reason": "{reason}"
   }
 ]
 JSONEOF
@@ -244,20 +304,22 @@ python3 <SKILL_DIR>/scripts/write_evaluation.py \
   --records-file /tmp/eval_record.json
 ```
 
-#### Step 8：归档重要新闻（如有）
+其中各字段值直接从 evaluator 的 JSON 结果中提取。
 
-如果 Step 3 识别出重要新闻，归档保存：
+#### 3b. 归档重要新闻（如有）
+
+如果 Phase 1b 消息面分析师返回的 `significant_news` 非空：
 
 ```bash
 cat > /tmp/news_records.json << 'JSONEOF'
 [
   {
-    "date": "{YYYY-MM-DD}",
-    "symbol": "{SYMBOL}",
-    "headline": "Tesla Q4 deliveries beat expectations",
-    "source": "Reuters",
-    "summary": "特斯拉Q4交付量超出市场预期...",
-    "sentiment": "positive",
+    "date": "{date}",
+    "symbol": "{ticker}",
+    "headline": "{headline}",
+    "source": "{source}",
+    "summary": "{summary}",
+    "sentiment": "{sentiment}",
     "is_significant": "true"
   }
 ]
@@ -268,9 +330,9 @@ python3 <SKILL_DIR>/scripts/write_news_archive.py \
   --records-file /tmp/news_records.json
 ```
 
-#### Step 9：推送评估报告
+#### 3c. 推送评估报告
 
-将最终结果以 Telegram 消息格式输出，格式参见 `references/report_format_spec.md`。
+将 evaluator 结果格式化为 Telegram 消息，格式参见 `references/report_format_spec.md`。
 
 单只股票格式：
 ```
@@ -284,12 +346,17 @@ python3 <SKILL_DIR>/scripts/write_news_archive.py \
 📊 基本面: {FUND}/100 ({SIGNAL})
 📈 综合: {WEIGHTED}/100
 
+🐂 看多: {BULL_SUMMARY}
+🐻 看空: {BEAR_SUMMARY}
+
 🎯 决策: {VERDICT_EMOJI} {VERDICT_TEXT}
 🔒 信心: {CONFIDENCE}%
 💡 {REASON}
+
+📌 关注: {ACTION_ITEMS}
 ```
 
-多只股票汇总：
+多只股票汇总（所有 symbol 的评估都完成后）：
 ```
 📋 盘后评估汇总 ({DATE})
 ━━━━━━━━━━━━━━━━━━
@@ -300,6 +367,32 @@ python3 <SKILL_DIR>/scripts/write_news_archive.py \
 📊 活跃计划: {N} | 今日评估: {M}
 ```
 
+### Sub-Agent 超时与错误处理
+
+| 场景 | 处理方式 |
+|------|---------|
+| Sub-Agent 超时 | announce 中 `Status: timeout`，该维度评分标记为 N/A，继续其余流程 |
+| Sub-Agent 失败 | announce 中 `Status: error`，该维度评分标记为 N/A，在报告中注明 |
+| 部分分析缺失 | 评估师仅使用可用报告进行评估，调整权重 |
+| 全部 Sub-Agent 失败 | 跳过该 symbol，报告中注明"评估失败" |
+
+建议在 OpenClaw 配置中设置合理超时：
+```jsonc
+{
+  "agents": {
+    "defaults": {
+      "subagents": {
+        "runTimeoutSeconds": 300,  // 每个 sub-agent 最多 5 分钟
+        "maxConcurrent": 8,
+        "maxChildrenPerAgent": 5
+      }
+    }
+  }
+}
+```
+
+> **重要**：`<SKILL_DIR>` = 此 SKILL.md 文件所在目录的绝对路径。
+
 ---
 
 ## 三、周报
@@ -309,13 +402,22 @@ python3 <SKILL_DIR>/scripts/write_news_archive.py \
 - **自动（Cron）**：每周六美东 10:00（`0 14 * * 6` UTC）
 - **手动**：用户说"投资周报"、"本周总结"、"weekly review"
 
-### 周报差异
+### 周报差异（Sub-Agent 参数调整）
 
-| 项目 | 每日评估 | 周报 |
+周报使用与每日评估相同的 Multi-Agent 流程，但 spawn Sub-Agent 时调整以下参数：
+
+| 变量 | 每日评估 | 周报 |
 |------|---------|------|
-| K 线图 | 日线 60 天 | 周线 120 天 |
-| 新闻范围 | 7 天 | 14 天 |
-| 额外内容 | 无 | 本周评分趋势 + 到期提醒 |
+| `{lookback_days}` | 60 | 120 |
+| `{period}` | daily | weekly |
+| `{chart_days}` | 60 | 120 |
+| `{news_days}` | 7 | 14 |
+
+### 周报额外内容
+
+在 Phase 3 报告阶段，周报额外包含：
+1. **本周评分趋势**：读取本周的评估 CSV，展示每日评分变化
+2. **到期提醒**：调用 `check_expiring_plans.py --days 14` 检查即将到期的计划
 
 ### 周报格式
 
@@ -388,12 +490,14 @@ python3 <SKILL_DIR>/scripts/check_expiring_plans.py \
 
 | 场景 | 处理方式 |
 |------|---------|
-| yfinance 数据获取失败 | 跳过该计划，报告中注明"数据获取失败" |
-| K 线图生成失败 | 跳过视觉分析，仅用数值数据 |
-| 无新闻数据 | 消息面评分标记为"数据不足"，其他维度正常评估 |
+| yfinance 数据获取失败 | Sub-Agent 返回 `status: "error"`，跳过该维度，报告中注明 |
+| K 线图生成失败 | Sub-Agent 返回 `status: "partial"` + `data_issues`，跳过视觉分析 |
+| 无新闻数据 | 消息面 Sub-Agent 评分标记为"数据不足"，其他维度正常评估 |
 | 非交易日手动触发 | 正常执行，使用最近交易日数据 |
-| 多个计划关注同一股票 | 数据获取只执行一次，分析复用，评估按计划分别记录 |
+| 多个计划关注同一股票 | Phase 1 数据获取/分析只 spawn 一组 Sub-Agent，Phase 2 评估按计划分别 spawn |
 | 港股/A股代码格式 | 港股用 `.HK` 后缀（如 `0700.HK`），A股用 `.SS`/`.SZ` 后缀 |
 | 用户未提供完整信息 | 引导用户补全必填字段，可选字段使用默认值 |
-| 基本面季度缓存 | 同一季度内复用缓存，避免重复获取和分析 |
-| 评估过程中某步骤出错 | 使用已有数据继续后续步骤，最终报告中注明缺失部分 |
+| 基本面季度缓存 | 基本面 Sub-Agent 内部处理缓存逻辑 |
+| Sub-Agent 超时 | 标记该维度为 N/A，用可用数据继续评估 |
+| Sub-Agent announce 失败 | Gateway 自动重试，最终失败则标记为 N/A |
+| 并发控制 | 由 OpenClaw `maxConcurrent` 配置控制，默认 8 |
