@@ -12,7 +12,17 @@ import csv
 import json
 import sys
 import uuid
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+
+def get_local_date() -> str:
+    """获取本地时区的日期（默认 Asia/Shanghai）"""
+    # 东八区时差
+    shanghai_offset = timedelta(hours=8)
+    local_tz = timezone(shanghai_offset)
+    now = datetime.now(local_tz)
+    return now.strftime("%Y-%m-%d")
 
 FIELDS = [
     "id", "date", "username", "query", "expression",
@@ -48,12 +58,19 @@ def write_records(records: list, data_dir: Path, overwrite: bool = False) -> dic
 
     # 按月份分组
     by_month: dict[str, list] = {}
+    today = get_local_date()  # 使用本地时区日期
+    
     for rec in records:
         # 自动生成 id（如果未提供）
         if not rec.get("id"):
             rec["id"] = str(uuid.uuid4())[:8]
 
+        # 自动使用本地时区日期（如果未提供）
         date_str = rec.get("date", "")
+        if not date_str:
+            date_str = today
+            rec["date"] = date_str
+        
         year_month = date_str[:7] if date_str else "unknown"
         by_month.setdefault(year_month, []).append(rec)
 

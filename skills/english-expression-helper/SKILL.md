@@ -136,16 +136,19 @@ python3 <SKILL_DIR>/scripts/write_expression.py \
 
 ### 触发方式
 
-- 定时任务（通过 openclaw cron 配置）：每天东八区早上 7:00 自动生成并推送到 Discord `#english-learning` 频道
-- 用户手动请求："今日英语汇总"、"daily English summary"
+- 定时任务（通过 openclaw cron 配置）：每天东八区早上 7:00 自动生成**昨日**汇总并推送到 Discord `#english-learning` 频道
+- 用户手动请求："今日英语汇总"、"daily English summary" → 生成**昨日**汇总
 
 ### 生成命令
 
 ```bash
+# 获取昨天的日期（东八区）
+yesterday=$(date -d "-1 day" +%Y-%m-%d)
+
 python3 <SKILL_DIR>/scripts/generate_daily_summary.py \
   --data-dir ~/openclaw-data/english/ \
   --username <USERNAME> \
-  --date <YYYY-MM-DD> \
+  --date $yesterday \
   --include-review \
   --output ~/openclaw-data/english/summaries/daily_<YYYY-MM-DD>.md
 ```
